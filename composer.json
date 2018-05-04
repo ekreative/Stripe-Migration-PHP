@@ -1,0 +1,6 @@
+{
+    "require": {
+        "stripe/stripe-php": "^6.6",
+        "symfony/console": "^4.0"
+    }
+}
