@@ -21,11 +21,13 @@ foreach ($products as $product) {
         return $a['id'];
     }, $plans['data']);
 
-    if (!count($planIds)) {
-        $product->delete();
-
-        echo "deleted {$product['id']}\n";
+    foreach ($plans['data'] as $plan) {
+        $plan->delete();
+        echo "deleted plan {$plan['id']}\n";
     }
+
+    $product->delete();
+    echo "deleted {$product['id']}\n";
 
     $t->addRow([$product['id'], implode(', ', $planIds)]);
 }

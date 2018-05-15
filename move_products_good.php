@@ -18,7 +18,20 @@ foreach ($products as $product) {
         'id' => $product['id'],
         'name' => $product['name'],
         'type' => $product['type'],
+        'shippable' => $product['shippable'],
     ]);
+
+    foreach ($product['skus']['data'] as $sku) {
+        \Stripe\SKU::create([
+            'id' => $sku['id'],
+            'product' => $product['id'],
+            'price' => $sku['price'],
+            'currency' => $sku['currency'],
+            'inventory' => [
+                'type' => 'infinite',
+            ],
+        ]);
+    }
 
     echo "created product {$product['id']}\n";
 }
