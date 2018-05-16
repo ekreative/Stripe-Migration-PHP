@@ -1,1 +1,4 @@
 /vendor
+/migrated_subscriptions.json
+/replaced_customers.json
+/stripe_keys.php
