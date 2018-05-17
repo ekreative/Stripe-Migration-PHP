@@ -27,6 +27,8 @@ if (file_exists('failed_subscriptions.json')) {
     $failedSubscriptions = json_decode($dataF, true);
 }
 
+$starting_after = "cus_CgjvpmfzWTzwkH";
+
 do {
     \Stripe\Stripe::setApiKey(SOURCE_KEY);
 
@@ -64,7 +66,6 @@ do {
                     'billing_cycle_anchor' => $s['current_period_end'],
                     'metadata' => [
                         'account_id' => isset($s['metadata']['account_id']) ? $s['metadata']['account_id'] : null,
-                        'receipt_id' => isset($s['metadata']['receipt_id']) ? $s['metadata']['receipt_id'] : null,
                     ]
                 ];
 
@@ -165,6 +166,8 @@ do {
 
     $count = count($customers['data']);
     echo "Listed $count customers\n";
+
+    break;
 } while ($count == 100);
 
 echo "saving state\n";
