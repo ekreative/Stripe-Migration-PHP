@@ -8,6 +8,7 @@ $out = new Symfony\Component\Console\Output\ConsoleOutput();
 $replacedCustomers = [];
 $migratedSubscriptions = [];
 $failedSubscriptions = [];
+$migratedCustomers = [];
 
 if (file_exists('replaced_customers.json')) {
     echo "loaded replaced customers\n";
@@ -27,7 +28,25 @@ if (file_exists('failed_subscriptions.json')) {
     $failedSubscriptions = json_decode($dataF, true);
 }
 
-$starting_after = "cus_CgjvpmfzWTzwkH";
+if (file_exists('migrated_customers.json')) {
+    echo "loaded migrated customers\n";
+    $dataC = file_get_contents('migrated_customers.json');
+    $migratedCustomers = json_decode($dataC, true);
+}
+
+if (count($migratedCustomers)) {
+    $starting_after = $migratedCustomers[count($migratedCustomers) - 1];
+}
+
+$running = true;
+
+pcntl_signal(SIGINT, function($sig) {
+    global $running;
+    echo "Stopping at end of block\n";
+    $running = false;
+});
+
+$totalCount = count($migratedSubscriptions);
 
 do {
     \Stripe\Stripe::setApiKey(SOURCE_KEY);
@@ -50,7 +69,7 @@ do {
         // Loop if they have multiple subscriptions
         foreach ($c['subscriptions']['data'] as $s) {
             // Only migrate active subscriptions (failed subscriptions going through retry settings, will be handled manually)
-            if (in_array($s['status'], array('active'))) {
+            if ($s['status'] === 'active' && $s['cancel_at_period_end'] === false) {
                 $subscriber = [
                     'customer_id' => $c['id'],
                     // Fields needed to create this customer
@@ -82,7 +101,7 @@ do {
     foreach ($subscribers as $subscriber) {
         echo "\n";
         if (in_array($subscriber['subscription_id'], $migratedSubscriptions)) {
-            echo "skipping migrated subscription {$subscriber['subscription_id']}\n";
+            echo "[$totalCount]: skipping migrated subscription {$subscriber['subscription_id']}\n";
             continue;
         }
 
@@ -91,7 +110,7 @@ do {
 
         if (isset($replacedCustomers[$subscriber['customer_id']])) {
             $newCustomerId = $replacedCustomers[$subscriber['customer_id']];
-            echo "using already created new customer {$newCustomerId} for {$subscriber['customer_id']}\n";
+            echo "[$totalCount]: using already created new customer {$newCustomerId} for {$subscriber['customer_id']}\n";
         }
 
         try {
@@ -103,10 +122,10 @@ do {
                 $newCustomerId = $customer['id'];
                 $replacedCustomers[$subscriber['customer_id']] = $newCustomerId;
 
-                echo "created new customer {$newCustomerId} for {$subscriber['customer_id']}\n";
+                echo "[$totalCount]: created new customer {$newCustomerId} for {$subscriber['customer_id']}\n";
             } catch (\Stripe\Error\InvalidRequest $exception) {
-                echo "error creating customer for {$subscriber['customer_id']}\n";
-                echo "error: {$exception->getMessage()}\n";
+                echo "[$totalCount]: error creating customer for {$subscriber['customer_id']}\n";
+                echo "[$totalCount]: error: {$exception->getMessage()}\n";
                 $failedSubscriptions[] = $subscriber['subscription_id'];
 
                 continue;
@@ -125,13 +144,13 @@ do {
                 ],
                 'metadata' => $subscriber['metadata'],
             ]);
-            echo "created subscription {$subscription['id']} for customer {$newCustomerId} with plan {$subscriber['plan_id']} from {$subscriber['subscription_id']}\n";
+            echo "[$totalCount]: created subscription {$subscription['id']} for customer {$newCustomerId} with plan {$subscriber['plan_id']} from {$subscriber['subscription_id']}\n";
 
 
         } catch (\Stripe\Error\InvalidRequest $exception) {
-            echo "error creating subscription for customer {$newCustomerId} with plan {$subscriber['plan_id']}\n";
-            echo "old customer {$subscriber['customer_id']}, old subscription {$subscriber['subscription_id']}\n";
-            echo "error: {$exception->getMessage()}\n";
+            echo "[$totalCount]: error creating subscription for customer {$newCustomerId} with plan {$subscriber['plan_id']}\n";
+            echo "[$totalCount]: old customer {$subscriber['customer_id']}, old subscription {$subscriber['subscription_id']}\n";
+            echo "[$totalCount]: error: {$exception->getMessage()}\n";
             $failedSubscriptions[] = $subscriber['subscription_id'];
 
             continue;
@@ -142,11 +161,11 @@ do {
         try {
             \Stripe\Subscription::retrieve($subscriber['subscription_id'])
                 ->cancel(['at_period_end' => true]);
-            echo "deleted subscription {$subscriber['subscription_id']} for customer {$subscriber['customer_id']}\n";
+            echo "[$totalCount]: deleted subscription {$subscriber['subscription_id']} for customer {$subscriber['customer_id']}\n";
         } catch (\Stripe\Error\InvalidRequest $exception) {
-            echo "error canceling subscription for customer {$subscriber['customer_id']} with plan {$subscriber['plan_id']}\n";
-            echo "new customer {$newCustomerId}, subscription {$subscriber['subscription_id']}\n";
-            echo "error: {$exception->getMessage()}\n";
+            echo "[$totalCount]: error canceling subscription for customer {$subscriber['customer_id']} with plan {$subscriber['plan_id']}\n";
+            echo "[$totalCount]: new customer {$newCustomerId}, subscription {$subscriber['subscription_id']}\n";
+            echo "[$totalCount]: error: {$exception->getMessage()}\n";
             $failedSubscriptions[] = $subscriber['subscription_id'];
 
             continue;
@@ -154,8 +173,15 @@ do {
 
         $progress->advance();
         $migratedSubscriptions[] = $subscriber['subscription_id'];
+        $migratedCustomers[] = $subscriber['customer_id'];
 
         save_data();
+        $totalCount++;
+
+        pcntl_signal_dispatch();
+        if (!$running) {
+            break;
+        }
     }
 
     $progress->finish();
@@ -166,17 +192,17 @@ do {
 
     $count = count($customers['data']);
     echo "Listed $count customers\n";
-
-    break;
-} while ($count == 100);
+    pcntl_signal_dispatch();
+} while ($count == 100 && $running);
 
 echo "saving state\n";
 save_data();
 
 function save_data() {
-    global $replacedCustomers, $migratedSubscriptions, $failedSubscriptions;
+    global $replacedCustomers, $migratedSubscriptions, $failedSubscriptions, $migratedCustomers;
 
     file_put_contents('replaced_customers.json', json_encode($replacedCustomers));
     file_put_contents('migrated_subscriptions.json', json_encode($migratedSubscriptions));
     file_put_contents('failed_subscriptions.json', json_encode($failedSubscriptions));
+    file_put_contents('migrated_customers.json', json_encode($migratedCustomers));
 }

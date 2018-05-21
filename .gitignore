@@ -1,4 +1,5 @@
 /failed_subscriptions.json
+/migrated_customers.json
 /migrated_subscriptions.json
 /replaced_customers.json
 /stripe_keys.php
